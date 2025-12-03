@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Distributed Phi & MQ-2 — Monitor</title>
+<style>
+*{ box-sizing:border-box; font-size:12pt; }
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  margin:24px; color:#222; background: linear-gradient(180deg,#020024 0%, #090979 35%, #00d4ff 100%);
+}
+.container{
+  width: 90%;
+  max-width:900px;
+  margin: 0 auto;
+  padding: 16px;
+  border: 3px solid white;
+  border-radius: 14px;
+  background: whitesmoke;
+  box-shadow: 5px 5px 8px rgba(0,0,0,0.4);
+}
+.title{ font-weight:bold; font-size:1.4rem; text-align:center; margin-bottom:8px; }
+
+.section { margin:12px 0; padding:10px; background:#fff; border-radius:8px; border:1px solid #ddd; }
+.controls { display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:center; margin-bottom:10px; }
+
+.cards { display:flex; gap:12px; justify-content:center; margin-bottom:12px; flex-wrap:wrap; }
+.card { background:white; border-radius:10px; padding:12px; width:200px; text-align:center; box-shadow:0 2px 6px rgba(0,0,0,0.08); border:2px solid #2e86de; font-weight:bold; }
+
+canvas { background:white; border:1px solid #e0e0e0; display:block; margin: 8px auto; max-width:100%; }
+
+.btn { padding:8px 12px; border-radius:6px; border:2px solid #008CBA; background:white; cursor:pointer; }
+.btn:hover { background:#008CBA; color:white; }
+.link { display:block; text-align:center; margin-top:10px; color:#2e86de; text-decoration:none; }
+.small { font-size:0.9rem; color:#444; }
+</style>
+</head>
+<body>
+<article class="container">
+  <header><h1 class="title">Distributed Phi & MQ-2 Monitor</h1></header>
+
+  <!-- PPM SECTION -->
+  <section class="section" id="ppmSection">
+    <h2>Concentración de Butano (PPM)</h2>
+    <div class="cards">
+      <div class="card" id="ppmCard">Butano: --- ppm</div>
+    </div>
+    <canvas id="ppmChart" width="700" height="260"></canvas>
+    <p class="small">La gráfica se actualiza automáticamente (cada 1s).</p>
+  </section>
+
+  <!-- PHI SECTION -->
+  <section class="section" id="phiSection">
+    <h2>Calculadora distribuida — Phi (𝜙)</h2>
+    <div class="controls">
+      <label>Terms: <input id="terms" type="number" value="1000" min="10" style="width:100px;"></label>
+      <button class="btn" onclick="calculatePhi();">Calcular</button>
+      <div id="phiResult" class="small"></div>
+    </div>
+    <div id="phiGraphWrap" style="display:none;">
+      <canvas id="phiChart" width="500" height="400"></canvas>
+      <div class="small">Espiral áurea (representación)</div>
+    </div>
+    <p class="small">La parte distribuida usa el RP2040 para calcular por RPC.</p>
+  </section>
+
+  <!-- IMAGE SECTION -->
+  <section class="section" id="imgSection">
+    <h2>Imágenes desde Raspberry Pi</h2>
+    <p class="small">Imágenes cargadas de Raspberry Pi.</p>
+    <img id="imgOrig" src="http://{{PI_IP}}:{{PI_PORT}}/messi.jpg" style="width:360px;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.15);display:block;margin:8px auto;">
+    <div style="text-align:center">
+      <button class="btn" onclick="document.getElementById('imgByn').style.display='inline'">Mostrar B/N</button>
+    </div>
+    <img id="imgByn" src="http://{{PI_IP}}:{{PI_PORT}}/messi_byn.jpg" style="width:360px;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.15);display:none;margin:8px auto;">
+  </section>
+
+  <footer style="text-align:center;margin-top:12px;">
+    <a class="link" href="/image.html">(página alternativa de imagen)</a>
+  </footer>
+</article>
+
+<script>
+/* --------- MiniChart(PPM) ---------- */
+class MiniChart {
+  constructor(canvas, config) {
+    this.ctx = canvas.getContext('2d');
+    this.data = config.data.datasets[0].data || [];
+    this.color = config.data.datasets[0].borderColor || '#c0392b';
+    this.title = config.options?.title?.text || '';
+    this.draw();
+  }
+  draw() {
+    const ctx = this.ctx;
+    const W = ctx.canvas.width, H = ctx.canvas.height;
+    ctx.fillStyle = 'white'; ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='black'; ctx.font='16px Arial'; ctx.fillText(this.title,10,20);
+    const px=50, py=35, w=W-70, h=H-70;
+    ctx.strokeStyle='black'; ctx.strokeRect(px,py,w,h);
+    if (!this.data || this.data.length<2) return;
+    const max = Math.max(...this.data), min = Math.min(...this.data);
+    const range = (max-min)||1;
+    // Y labels
+    ctx.font='12px Arial'; ctx.fillStyle='black';
+    ctx.fillText(max.toFixed(0), 8, py+8);
+    ctx.fillText(((max+min)/2).toFixed(0), 8, py + h/2);
+    ctx.fillText(min.toFixed(0), 8, py + h);
+    // X labels
+    ctx.fillText('0', px, py+h+15);
+    ctx.fillText(String(this.data.length-1), px+w-10, py+h+15);
+    // line
+    ctx.beginPath(); ctx.strokeStyle=this.color; ctx.lineWidth=2;
+    this.data.forEach((v,i)=>{
+      const x = px + (i/(this.data.length-1))*w;
+      const y = py + h - ((v-min)/range)*h;
+      if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+  }
+}
+function Chart(canvas, config){ return new MiniChart(canvas, config); }
+
+/* ---------- PPM auto-update ---------- */
+async function updatePPM(){
+  try {
+    const res = await fetch('/gas');
+    const data = await res.json();
+    if (!data || data.length===0) return;
+    const ppms = data.map(d=>d.ppm);
+    const last = ppms[ppms.length-1];
+    document.getElementById('ppmCard').innerText = 'Butano: ' + Math.round(last) + ' ppm';
+    Chart(document.getElementById('ppmChart'), { data:{datasets:[{data:ppms,borderColor:'#c0392b'}]}, options:{title:{text:'PPM Butano'}}});
+  } catch(e){
+    console.log('Error /gas', e);
+  }
+}
+setInterval(updatePPM, 1000);
+updatePPM();
+
+/* ---------- Phi (usa /phi endpoint) ---------- */
+function generatePoints(phi, turns=6, pointsPerTurn=300, a=0.02){
+  const b = (2*Math.log(phi))/Math.PI;
+  const total = Math.floor(turns*pointsPerTurn);
+  const thetaMax = turns*2*Math.PI;
+  const pts=[];
+  for(let i=0;i<=total;i++){
+    const t = i/total;
+    const theta = t*thetaMax;
+    const r = a*Math.exp(b*theta);
+    const x = r*Math.cos(theta), y = r*Math.sin(theta);
+    pts.push({x,y});
+  }
+  return pts;
+}
+function renderPhi(phi, turns){
+  const canvas = document.getElementById('phiChart');
+  const ctx = canvas.getContext('2d');
+  const pts = generatePoints(phi, turns, 300, 0.02);
+  // simple draw
+  ctx.fillStyle='white'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  // bounds
+  let minX=1e9,maxX=-1e9,minY=1e9,maxY=-1e9;
+  pts.forEach(p=>{ if(p.x<minX)minX=p.x; if(p.x>maxX)maxX=p.x; if(p.y<minY)minY=p.y; if(p.y>maxY)maxY=p.y;});
+  const px=40,py=30,w=canvas.width-70,h=canvas.height-70;
+  ctx.strokeStyle='black'; ctx.strokeRect(px,py,w,h);
+  ctx.beginPath(); ctx.strokeStyle='#d35400'; ctx.lineWidth=2;
+  pts.forEach((p,i)=>{
+    const x = px + ((p.x-minX)/(maxX-minX||1))*w;
+    const y = py + h - ((p.y-minY)/(maxY-minY||1))*h;
+    if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+  });
+  ctx.stroke();
+}
+function calculatePhi(){
+  const n = parseInt(document.getElementById('terms').value) || 1000;
+  document.getElementById('phiResult').innerText = 'Calculando...';
+  fetch('/phi?n=' + n).then(r=>r.text()).then(txt=>{
+    const phiVal = parseFloat(txt) || NaN;
+    if (isFinite(phiVal)){
+      document.getElementById('phiResult').innerText = 'Phi ≈ ' + phiVal.toFixed(8);
+      document.getElementById('phiGraphWrap').style.display='block';
+      renderPhi(phiVal, 6);
+    } else {
+      document.getElementById('phiResult').innerText = 'Error o RP2040 no responde';
+    }
+  }).catch(e=>{
+    document.getElementById('phiResult').innerText = 'Error de red';
+  });
+}
+
+/* ---------- simple image show (button already present) ---------- */
+/* nothing extra required */
+
+</script>
+</body>
+</html>
